@@ -62,6 +62,79 @@ def get_severity_category(score, type):
         else:
             return "Normal", "Normal"
 
+def generate_explanation(prediction_label, depression_score, anxiety_score, stress_score, 
+                         depression_category_id, anxiety_category_id, stress_category_id,
+                         so_score, family_score, friends_score):
+    """
+    Generate penjelasan hasil kuisioner untuk user
+    """
+    # Mapping kategori ke Bahasa Indonesia
+    category_mapping = {
+        'Depression': 'Depresi',
+        'Anxiety': 'Cemas',
+        'Stress': 'Stres',
+        'Normal': 'Normal'
+    }
+    
+    prediction_id = category_mapping.get(prediction_label, prediction_label)
+    
+    # Tentukan kategori mana yang menjadi runner-up (skor tertinggi kedua)
+    scores = {
+        'Depression': depression_score,
+        'Anxiety': anxiety_score,
+        'Stress': stress_score
+    }
+    
+    # Sort by score descending
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    highest_category, highest_score = sorted_scores[0]
+    second_highest_category, second_highest_score = sorted_scores[1] if len(sorted_scores) > 1 else (None, 0)
+    
+    # Mapping severity ke Bahasa Indonesia
+    severity_mapping = {
+        'Normal': 'Normal',
+        'Mild': 'Ringan',
+        'Moderate': 'Sedang',
+        'Severe': 'Berat',
+        'Extremely Severe': 'Sangat Berat'
+    }
+    
+    # Generate penjelasan utama
+    if prediction_label == 'Normal':
+        main_explanation = f"Berdasarkan jawaban Anda, kondisi kesehatan mental Anda berada dalam kategori Normal. Skor depresi ({depression_score}), cemas ({anxiety_score}), dan stres ({stress_score}) Anda masih dalam rentang yang sehat."
+    else:
+        # Dapatkan kategori severity dalam Bahasa Indonesia
+        categories_id = {
+            'Depression': severity_mapping.get(depression_category_id, depression_category_id),
+            'Anxiety': severity_mapping.get(anxiety_category_id, anxiety_category_id),
+            'Stress': severity_mapping.get(stress_category_id, stress_category_id)
+        }
+        
+        prediction_severity_id = categories_id.get(prediction_label, '')
+        
+        # Cek apakah ada kategori lain dengan skor mendekati
+        if second_highest_category and abs(highest_score - second_highest_score) < 5:
+            second_highest_id = category_mapping.get(second_highest_category, second_highest_category)
+            second_highest_severity = categories_id.get(second_highest_category, '')
+            
+            main_explanation = f"Berdasarkan jawaban Anda, Anda mengalami {prediction_id}. Skor {prediction_id} ({highest_score}) dan {second_highest_id} ({second_highest_score}) Anda sama-sama tinggi dan termasuk dalam kategori {prediction_severity_id}. Artinya, gejala {prediction_id} yang Anda alami sudah sangat menonjol dan memerlukan perhatian yang serius."
+        else:
+            main_explanation = f"Berdasarkan jawaban Anda, Anda mengalasi {prediction_id} dengan skor {highest_score}. Gejala {prediction_id} yang Anda tunjukkan sudah termasuk dalam kategori {prediction_severity_id} dan memerlukan perhatian yang serius."
+    
+    # Generate penjelasan dukungan sosial
+    mspps_avg = (so_score + family_score + friends_score) / 3
+    if mspps_avg >= 4:
+        support_explanation = f"Dukungan sosial Anda tergolong tinggi (rata-rata: {mspps_avg:.1f}/5). Dukungan baik dari keluarga ({family_score:.1f}), teman ({friends_score:.1f}), dan orang terdekat ({so_score:.1f}) dapat menjadi faktor protektif yang membantu mengurangi dampak dari gejala yang Anda alami."
+    elif mspps_avg >= 3:
+        support_explanation = f"Dukungan sosial Anda tergolong sedang (rata-rata: {mspps_avg:.1f}/5). Dukungan dari keluarga ({family_score:.1f}), teman ({friends_score:.1f}), dan orang terdekat ({so_score:.1f}) dapat membantu, namun masih dapat ditingkatkan untuk mendukung pemulihan kondisi Anda."
+    else:
+        support_explanation = f"Dukungan sosial Anda tergolong rendah (rata-rata: {mspps_avg:.1f}/5). Kurangnya dukungan dari keluarga ({family_score:.1f}), teman ({friends_score:.1f}), atau orang terdekat ({so_score:.1f}) dapat menjadi faktor yang memperburuk kondisi kesehatan mental Anda. Mencari dukungan dari orang-orang terdekat dapat membantu proses pemulihan."
+    
+    # Combine penjelasan
+    full_explanation = f"{main_explanation} {support_explanation}"
+    
+    return full_explanation
+
 def categorize_DAS(row):
     """
     Kategorisasi skor DASS menjadi label
@@ -293,6 +366,13 @@ def predict():
         anxiety_category_en, anxiety_category_id = get_severity_category(anxiety_score, "Anxiety")
         stress_category_en, stress_category_id = get_severity_category(stress_score, "Stress")
 
+        # Generate penjelasan untuk user
+        explanation = generate_explanation(
+            manual_label, depression_score, anxiety_score, stress_score,
+            depression_category_id, anxiety_category_id, stress_category_id,
+            so_score, family_score, friends_score
+        )
+
         # Convert numpy types to native Python types for JSON serialization
         def convert_to_native(obj):
             if isinstance(obj, np.integer):
@@ -307,6 +387,7 @@ def predict():
         response = {
             'prediction': prediction_label,
             'manual_calculation': manual_label,
+            'explanation': explanation,
             'confidence': {
                 'Anxiety': f"{float(prediction_proba[label_encoder.transform(['Anxiety'])[0]]):.4f}",
                 'Depression': f"{float(prediction_proba[label_encoder.transform(['Depression'])[0]]):.4f}",
