@@ -119,7 +119,7 @@ def predict():
         # =========================
         # REVERSE
         # =========================
-        rev_items = ["Q1","Q2","Q3","Q8","Q9","Q11","Q12","Q13","Q17","Q18"]
+        rev_items = ["Q2","Q3","Q5","Q6","Q7","Q8","Q11","Q13","Q16","Q17"]
         for q in rev_items:
             df[q] = 8 - df[q]
 
@@ -127,12 +127,12 @@ def predict():
         # SUBSCALE
         # =========================
         subscales = {
-            "Autonomy": ["Q15", "Q17", "Q18"],
-            "Environmental_Mastery": ["Q4", "Q8", "Q9"],
-            "Personal_Growth": ["Q11", "Q12", "Q14"],
-            "Positive_Relations": ["Q6", "Q13", "Q16"],
-            "Purpose_in_Life": ["Q3", "Q7", "Q10"],
-            "Self_Acceptance": ["Q1", "Q2", "Q5"]
+            "Autonomy": ["Q1", "Q2", "Q3"],
+            "Environmental_Mastery": ["Q4", "Q5", "Q6"],
+            "Personal_Growth": ["Q7", "Q8", "Q9"],
+            "Positive_Relations": ["Q10", "Q11", "Q12"],
+            "Purpose_in_Life": ["Q13", "Q14", "Q15"],
+            "Self_Acceptance": ["Q16", "Q17", "Q18"]
         }
 
         for s, items in subscales.items():
