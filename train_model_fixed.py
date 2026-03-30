@@ -278,7 +278,13 @@ def train_random_forest(data_path, model_output_path='models/random_forest_model
     
     # Simpan model
     import os
-    os.makedirs('models', exist_ok=True)
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    models_dir = os.path.join(BASE_DIR, 'models')
+    os.makedirs(models_dir, exist_ok=True)
+    
+    model_output_path = os.path.join(models_dir, os.path.basename(model_output_path))
+    scaler_output_path = os.path.join(models_dir, os.path.basename(scaler_output_path))
+    encoder_output_path = os.path.join(models_dir, os.path.basename(encoder_output_path))
     
     print(f"\nSaving model to {model_output_path}...")
     joblib.dump(rf_model, model_output_path)
@@ -300,6 +306,8 @@ def train_random_forest(data_path, model_output_path='models/random_forest_model
 
 if __name__ == "__main__":
     # Gunakan file Excel untuk dataset asli
-    data_path = "dataset/DATASET TA.xlsx"
+    import os
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(BASE_DIR, "dataset/DATASET TA.xlsx")
     
     train_random_forest(data_path)

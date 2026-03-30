@@ -3,26 +3,51 @@ from flask_cors import CORS
 import joblib
 import numpy as np
 import pandas as pd
+import json
 import os
 
 app = Flask(__name__)
 CORS(app)
 
-# Load model, scaler, dan label encoder
-model_path = 'models/random_forest_model.pkl'
-scaler_path = 'models/scaler.pkl'
-encoder_path = 'models/label_encoder.pkl'
+# =========================
+# LOAD DASS-21 MODELS (Random Forest)
+# =========================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+dass_model_path = os.path.join(BASE_DIR, 'models', 'random_forest_model.pkl')
+dass_scaler_path = os.path.join(BASE_DIR, 'models', 'scaler.pkl')
+dass_encoder_path = os.path.join(BASE_DIR, 'models', 'label_encoder.pkl')
 
 try:
-    model = joblib.load(model_path)
-    scaler = joblib.load(scaler_path)
-    label_encoder = joblib.load(encoder_path)
-    print("Model, scaler, and label encoder loaded successfully!")
+    dass_model = joblib.load(dass_model_path)
+    dass_scaler = joblib.load(dass_scaler_path)
+    dass_label_encoder = joblib.load(dass_encoder_path)
+    print("DASS-21 Model, scaler, and label encoder loaded successfully!")
 except Exception as e:
-    print(f"Error loading model: {e}")
-    model = None
-    scaler = None
-    label_encoder = None
+    print(f"Error loading DASS-21 model: {e}")
+    dass_model = None
+    dass_scaler = None
+    dass_label_encoder = None
+
+# =========================
+# LOAD SELF EFFICACY MODELS (SVM)
+# =========================
+se_model_path = os.path.join(BASE_DIR, 'models', 'model_svm.pkl')
+se_scaler_path = os.path.join(BASE_DIR, 'models', 'scaler_se.pkl')
+se_encoder_path = os.path.join(BASE_DIR, 'models', 'label_encoder_se.pkl')
+se_feature_path = os.path.join(BASE_DIR, 'models', 'feature_cols.pkl')
+
+try:
+    se_model = joblib.load(se_model_path)
+    se_scaler = joblib.load(se_scaler_path)
+    se_label_encoder = joblib.load(se_encoder_path)
+    se_feature_cols = joblib.load(se_feature_path)
+    print("Self Efficacy Model, scaler, encoder, and features loaded successfully!")
+except Exception as e:
+    print(f"Error loading Self Efficacy model: {e}")
+    se_model = None
+    se_scaler = None
+    se_label_encoder = None
+    se_feature_cols = None
 
 def get_severity_category(score, type):
     """
@@ -243,7 +268,8 @@ def home():
         'message': 'Mental Health Prediction API',
         'version': '1.0',
         'endpoints': {
-            'predict': '/api/predict',
+            'dass_predict': '/api/dass/predict',
+            'se_predict': '/api/se/predict',
             'health': '/api/health'
         }
     })
@@ -252,13 +278,17 @@ def home():
 def health_check():
     return jsonify({
         'status': 'healthy',
-        'model_loaded': model is not None
+        'dass_model_loaded': dass_model is not None,
+        'se_model_loaded': se_model is not None
     })
 
-@app.route('/api/predict', methods=['POST'])
-def predict():
-    if model is None or scaler is None or label_encoder is None:
-        return jsonify({'error': 'Model not loaded'}), 500
+# =========================
+# DASS-21 PREDICTION ENDPOINT
+# =========================
+@app.route('/api/dass/predict', methods=['POST'])
+def predict_dass():
+    if dass_model is None or dass_scaler is None or dass_label_encoder is None:
+        return jsonify({'error': 'DASS-21 Model not loaded'}), 500
 
     try:
         data = request.get_json()
@@ -344,14 +374,14 @@ def predict():
         })
         
         # Scale input
-        input_scaled = scaler.transform(input_data)
-        
+        input_scaled = dass_scaler.transform(input_data)
+
         # Prediksi
-        prediction_encoded = model.predict(input_scaled)[0]
-        prediction_proba = model.predict_proba(input_scaled)[0]
-        
+        prediction_encoded = dass_model.predict(input_scaled)[0]
+        prediction_proba = dass_model.predict_proba(input_scaled)[0]
+
         # Decode label
-        prediction_label = label_encoder.inverse_transform([prediction_encoded])[0]
+        prediction_label = dass_label_encoder.inverse_transform([prediction_encoded])[0]
         
         # Buat manual label untuk verifikasi
         manual_row = {
@@ -389,10 +419,10 @@ def predict():
             'manual_calculation': manual_label,
             'explanation': explanation,
             'confidence': {
-                'Anxiety': f"{float(prediction_proba[label_encoder.transform(['Anxiety'])[0]]):.4f}",
-                'Depression': f"{float(prediction_proba[label_encoder.transform(['Depression'])[0]]):.4f}",
-                'Normal': f"{float(prediction_proba[label_encoder.transform(['Normal'])[0]]):.4f}",
-                'Stress': f"{float(prediction_proba[label_encoder.transform(['Stress'])[0]]):.4f}"
+                'Anxiety': f"{float(prediction_proba[dass_label_encoder.transform(['Anxiety'])[0]]):.4f}",
+                'Depression': f"{float(prediction_proba[dass_label_encoder.transform(['Depression'])[0]]):.4f}",
+                'Normal': f"{float(prediction_proba[dass_label_encoder.transform(['Normal'])[0]]):.4f}",
+                'Stress': f"{float(prediction_proba[dass_label_encoder.transform(['Stress'])[0]]):.4f}"
             },
             'categories': {
                 'Depression': {
@@ -446,6 +476,268 @@ def predict():
         import traceback
         traceback.print_exc()
         print("="*60 + "\n")
+        return jsonify({'error': str(e)}), 500
+
+# =========================
+# SELF EFFICACY PREDICTION ENDPOINT
+# =========================
+@app.route('/api/se/predict', methods=['POST'])
+def predict_se():
+    if se_model is None or se_scaler is None or se_label_encoder is None:
+        return jsonify({'error': 'Self Efficacy Model not loaded'}), 500
+
+    try:
+        data = request.get_json()
+
+        print("\n" + "="*50)
+        print("SELF EFFICACY REQUEST DATA:")
+        print(json.dumps(data, indent=2))
+        print("="*50)
+
+        df = pd.DataFrame([data])
+
+        # =========================
+        # MAPPING SE
+        # =========================
+        map_se = {
+            'Sangat tidak setuju': 1,
+            'Tidak setuju': 2,
+            'Setuju': 3,
+            'Sangat setuju': 4
+        }
+
+        se_cols = ['SE01','SE02','SE03','SE04','SE05','SE06','SE07','SE08','SE09','SE10']
+
+        for col in se_cols:
+            val = df.at[0, col]
+            if isinstance(val, str):
+                df[col] = df[col].map(map_se)
+            df[col] = df[col].fillna(0).astype(int)
+
+        # =========================
+        # MAPPING Q
+        # =========================
+        map_q = {
+            'Sangat setuju': 1,
+            'Setuju': 2,
+            'Agak setuju': 3,
+            'Netral': 4,
+            'Agak tidak setuju': 5,
+            'Tidak setuju': 6,
+            'Sangat tidak setuju': 7
+        }
+
+        for i in range(1, 19):
+            col = f"Q{i}"
+            val = df.at[0, col]
+
+            if isinstance(val, str):
+                df[col] = df[col].map(map_q)
+
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+
+        # =========================
+        # REVERSE
+        # =========================
+        rev_items = ["Q2","Q3","Q5","Q6","Q7","Q8","Q11","Q13","Q16","Q17"]
+        for q in rev_items:
+            df[q] = 8 - df[q]
+
+        # =========================
+        # SUBSCALE
+        # =========================
+        subscales = {
+            "Autonomy": ["Q1", "Q2", "Q3"],
+            "Environmental_Mastery": ["Q4", "Q5", "Q6"],
+            "Personal_Growth": ["Q7", "Q8", "Q9"],
+            "Positive_Relations": ["Q10", "Q11", "Q12"],
+            "Purpose_in_Life": ["Q13", "Q14", "Q15"],
+            "Self_Acceptance": ["Q16", "Q17", "Q18"]
+        }
+
+        for s, items in subscales.items():
+            df[s] = df[items].sum(axis=1)
+
+        # =========================
+        # ANALISIS WELL-BEING
+        # =========================
+
+        wb_scores = {
+            key: int(df[key].iloc[0]) for key in subscales.keys()
+        }
+
+        max_feature_key = max(wb_scores, key=wb_scores.get)
+        min_feature_key = min(wb_scores, key=wb_scores.get)
+
+        max_score = wb_scores[max_feature_key]
+        min_score = wb_scores[min_feature_key]
+
+        # label biar lebih manusiawi
+        wb_label_map = {
+            "Autonomy": "Kemandirian",
+            "Environmental_Mastery": "Penguasaan lingkungan",
+            "Personal_Growth": "Pengembangan diri",
+            "Positive_Relations": "Hubungan positif",
+            "Purpose_in_Life": "Tujuan hidup",
+            "Self_Acceptance": "Penerimaan diri"
+        }
+
+        max_feature = wb_label_map.get(max_feature_key, max_feature_key)
+        min_feature = wb_label_map.get(min_feature_key, min_feature_key)
+
+        # =========================
+        # TOTAL SCORE
+        # =========================
+        se_total = df[se_cols].sum(axis=1).iloc[0]
+        wb_total = df[list(subscales.keys())].sum(axis=1).iloc[0]
+        se_items = {col: int(df[col].iloc[0]) for col in se_cols}
+
+        # =========================
+        # ANALISIS SELF-EFFICACY
+        # =========================
+        se_scores = {
+            col: int(df[col].iloc[0]) for col in se_cols
+        }
+
+        # cari tertinggi & terendah
+        max_se = max(se_scores, key=se_scores.get)
+        min_se = min(se_scores, key=se_scores.get)
+
+        max_se_score = se_scores[max_se]
+        min_se_score = se_scores[min_se]
+
+        se_label_map = {
+            "SE01": "Kemampuan menyelesaikan masalah sulit",
+            "SE02": "Kemampuan mencari solusi saat menghadapi hambatan",
+            "SE03": "Ketekunan dalam mencapai tujuan",
+            "SE04": "Kepercayaan diri menghadapi situasi tak terduga",
+            "SE05": "Kecerdikan dalam mengatasi situasi baru",
+            "SE06": "Keyakinan menyelesaikan masalah melalui usaha",
+            "SE07": "Kemampuan tetap tenang saat menghadapi kesulitan",
+            "SE08": "Kemampuan menemukan berbagai alternatif solusi",
+            "SE09": "Kemampuan berpikir solusi saat dalam masalah",
+            "SE10": "Keyakinan menghadapi berbagai situasi kehidupan"
+        }
+
+        max_se = se_label_map.get(max_se, max_se)
+        min_se = se_label_map.get(min_se, min_se)
+
+        # =========================
+        # TOP 5 FITUR PALING BERPENGARUH
+        # =========================
+
+        # Self-Efficacy
+        se_sorted = sorted(
+            {col: int(df[col].iloc[0]) for col in se_cols}.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        # Well-Being
+        wb_sorted = sorted(
+            {key: int(df[key].iloc[0]) for key in subscales.keys()}.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        # Ambil 3 SE + 2 WB
+        top_features = dict(se_sorted[:3] + wb_sorted[:2])
+
+        # =========================
+        # FEATURE
+        # =========================
+        X = df[se_feature_cols]
+        X_scaled = se_scaler.transform(X)
+
+        # =========================
+        # PREDICTION
+        # =========================
+        pred_encoded = se_model.predict(X_scaled)[0]
+        pred_proba = se_model.predict_proba(X_scaled)[0]
+
+        label = se_label_encoder.inverse_transform([pred_encoded])[0]
+
+        # =========================
+        # PENJELASAN OTOMATIS
+        # =========================
+        if label == "high_well_being":
+            explanation = (
+                f"Berdasarkan jawaban Anda, Anda memiliki kondisi psychological well-being yang baik "
+                f"dengan skor total {wb_total}. "
+
+                # WELL BEING
+                f"Aspek terkuat Anda terdapat pada {max_feature} dengan skor {max_score}, "
+                f"sedangkan aspek yang masih bisa ditingkatkan adalah {min_feature} dengan skor {min_score}. "
+
+                # SELF EFFICACY
+                f"Dari sisi self-efficacy, Anda paling percaya diri dalam {max_se} (skor {max_se_score}), "
+                f"namun masih perlu meningkatkan {min_se} (skor {min_se_score})."
+            )
+
+        else:
+            explanation = (
+                f"Berdasarkan jawaban Anda, Anda berada dalam kategori low well-being "
+                f"dengan skor total {wb_total}. "
+
+                # WELL BEING
+                f"Aspek yang paling perlu diperhatikan adalah {min_feature} dengan skor {min_score}, "
+                f"sementara kekuatan Anda terdapat pada {max_feature} dengan skor {max_score}. "
+
+                # SELF EFFICACY
+                f"Dari sisi self-efficacy, Anda cukup baik dalam {max_se} (skor {max_se_score}), "
+                f"namun masih perlu meningkatkan {min_se} (skor {min_se_score}) untuk hasil yang lebih optimal."
+            )
+
+        # =========================
+        # CONFIDENCE
+        # =========================
+        confidence = {
+            se_label_encoder.inverse_transform([i])[0]: float(prob)
+            for i, prob in enumerate(pred_proba)
+        }
+
+        # =========================
+        # RESPONSE (SUPER LENGKAP)
+        # =========================
+        response = {
+            "prediction": label,
+            "explanation": explanation,
+            "confidence": confidence,
+            "top_features": top_features,
+
+            "scores": {
+                "self_efficacy": {
+                    "total": int(se_total),
+                    "max": 40,
+                    "percentage": round((se_total / 40) * 100, 2),
+                    "items": se_items
+                },
+                "well_being": {
+                    "total": int(wb_total),
+                    "max": 126,
+                    "percentage": round((wb_total / 126) * 100, 2)
+                },
+                "subscales": {
+                    "Autonomy": int(df["Autonomy"].iloc[0]),
+                    "Environmental_Mastery": int(df["Environmental_Mastery"].iloc[0]),
+                    "Personal_Growth": int(df["Personal_Growth"].iloc[0]),
+                    "Positive_Relations": int(df["Positive_Relations"].iloc[0]),
+                    "Purpose_in_Life": int(df["Purpose_in_Life"].iloc[0]),
+                    "Self_Acceptance": int(df["Self_Acceptance"].iloc[0])
+                }
+            }
+        }
+
+        print("\nSELF EFFICACY RESPONSE:")
+        print(json.dumps(response, indent=2))
+        print("="*60)
+
+        return jsonify(response)
+
+    except Exception as e:
+        print("SELF EFFICACY ERROR:", str(e))
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
