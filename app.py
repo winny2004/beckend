@@ -116,6 +116,16 @@ def resolve_main_category(depression_score, anxiety_score, stress_score):
     Depression > Anxiety > Stress
     """
 
+    # =========================
+    # HANDLE NORMAL
+    # =========================
+    if (
+        depression_score <= 9 and
+        anxiety_score <= 7 and
+        stress_score <= 14
+    ):
+        return "Normal"
+
     levels = {
         'Depression': get_severity_level(depression_score, "Depression"),
         'Anxiety': get_severity_level(anxiety_score, "Anxiety"),
@@ -131,9 +141,11 @@ def resolve_main_category(depression_score, anxiety_score, stress_score):
     priority = ['Depression', 'Anxiety', 'Stress']
 
     max_level = max(levels.values())
+
     candidates = [k for k, v in levels.items() if v == max_level]
 
     max_score = max(scores[k] for k in candidates)
+
     candidates = [k for k in candidates if scores[k] == max_score]
 
     for p in priority:
