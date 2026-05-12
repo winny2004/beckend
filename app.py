@@ -29,10 +29,49 @@ except Exception as e:
     dass_label_encoder = None
 
 
+def get_severity_level(score, type):
+    """
+    Helper function: Mendapatkan severity level (0-4) berdasarkan skor
+    Digunakan untuk CATEGORIZATION di kedua tempat (categorize_DAS & generate_explanation)
+    """
+    if type == "Depression":
+        if score >= 28:
+            return 4
+        elif score >= 21:
+            return 3
+        elif score >= 14:
+            return 2
+        elif score >= 10:
+            return 1
+        else:
+            return 0
+    elif type == "Anxiety":
+        if score >= 20:
+            return 4
+        elif score >= 15:
+            return 3
+        elif score >= 10:
+            return 2
+        elif score >= 8:
+            return 1
+        else:
+            return 0
+    else:  # Stress
+        if score >= 34:
+            return 4
+        elif score >= 26:
+            return 3
+        elif score >= 19:
+            return 2
+        elif score >= 15:
+            return 1
+        else:
+            return 0
+
 
 def get_severity_category(score, type):
     """
-    Mendapatkan kategori severity berdasarkan skor
+    Mendapatkan kategori severity berdasarkan skor (untuk display text)
     """
     if type == "Depression":
         if score >= 28:
@@ -68,11 +107,17 @@ def get_severity_category(score, type):
         else:
             return "Normal", "Normal"
 
+
 def generate_explanation(prediction_label, depression_score, anxiety_score, stress_score, 
                          depression_category_id, anxiety_category_id, stress_category_id,
                          so_score, family_score, friends_score):
     """
     Generate penjelasan hasil kuisioner untuk user
+    
+    PERBAIKAN LENGKAP:
+    - Menggunakan severity level untuk menentukan highest_category (konsisten dengan categorize_DAS)
+    - Handle tie dengan skor mentah sebagai tie-breaker
+    - Penjelasan selalu konsisten dengan prediction_label
     """
     # Mapping kategori ke Bahasa Indonesia
     category_mapping = {
@@ -81,20 +126,6 @@ def generate_explanation(prediction_label, depression_score, anxiety_score, stre
         'Stress': 'Stres',
         'Normal': 'Normal'
     }
-    
-    prediction_id = category_mapping.get(prediction_label, prediction_label)
-    
-    # Tentukan kategori mana yang menjadi runner-up (skor tertinggi kedua)
-    scores = {
-        'Depression': depression_score,
-        'Anxiety': anxiety_score,
-        'Stress': stress_score
-    }
-    
-    # Sort by score descending
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    highest_category, highest_score = sorted_scores[0]
-    second_highest_category, second_highest_score = sorted_scores[1] if len(sorted_scores) > 1 else (None, 0)
     
     # Mapping severity ke Bahasa Indonesia
     severity_mapping = {
@@ -105,27 +136,68 @@ def generate_explanation(prediction_label, depression_score, anxiety_score, stre
         'Extremely Severe': 'Sangat Berat'
     }
     
+    # ✅ PERBAIKAN: Gunakan severity level untuk menentukan kategori tertinggi
+    scores_dict = {
+        'Depression': depression_score,
+        'Anxiety': anxiety_score,
+        'Stress': stress_score
+    }
+    
+    # Hitung severity level untuk setiap kategori
+    levels = {
+        'Depression': get_severity_level(depression_score, "Depression"),
+        'Anxiety': get_severity_level(anxiety_score, "Anxiety"),
+        'Stress': get_severity_level(stress_score, "Stress")
+    }
+    
+    print(f"[DEBUG] Severity Levels: {levels}")
+    
+    # Cari level tertinggi
+    max_level = max(levels.values())
+    categories_with_max_level = [k for k, v in levels.items() if v == max_level]
+    
+    # Jika ada tie di level, gunakan skor mentah sebagai tie-breaker
+    if len(categories_with_max_level) > 1:
+        highest_category = max(categories_with_max_level, key=lambda x: scores_dict[x])
+        print(f"[DEBUG] Tie detected: {categories_with_max_level}, using raw score tie-breaker → {highest_category}")
+    else:
+        highest_category = categories_with_max_level[0]
+        print(f"[DEBUG] No tie, highest category: {highest_category}")
+    
+    highest_score = scores_dict[highest_category]
+    
+    # Cari kategori dengan skor tertinggi kedua
+    remaining = {k: v for k, v in scores_dict.items() if k != highest_category}
+    if remaining:
+        second_highest_category = max(remaining, key=remaining.get)
+        second_highest_score = remaining[second_highest_category]
+    else:
+        second_highest_category = None
+        second_highest_score = 0
+    
+    # Get severity category names
+    highest_category_id = category_mapping.get(highest_category, highest_category)
+    
+    categories_id = {
+        'Depression': severity_mapping.get(depression_category_id, depression_category_id),
+        'Anxiety': severity_mapping.get(anxiety_category_id, anxiety_category_id),
+        'Stress': severity_mapping.get(stress_category_id, stress_category_id)
+    }
+    
+    highest_severity_id = categories_id.get(highest_category, '')
+    
     # Generate penjelasan utama
     if prediction_label == 'Normal':
         main_explanation = f"Berdasarkan jawaban Anda, kondisi kesehatan mental Anda berada dalam kategori Normal. Skor depresi ({depression_score}), cemas ({anxiety_score}), dan stres ({stress_score}) Anda masih dalam rentang yang sehat."
     else:
-        # Dapatkan kategori severity dalam Bahasa Indonesia
-        categories_id = {
-            'Depression': severity_mapping.get(depression_category_id, depression_category_id),
-            'Anxiety': severity_mapping.get(anxiety_category_id, anxiety_category_id),
-            'Stress': severity_mapping.get(stress_category_id, stress_category_id)
-        }
-        
-        prediction_severity_id = categories_id.get(prediction_label, '')
-        
         # Cek apakah ada kategori lain dengan skor mendekati
         if second_highest_category and abs(highest_score - second_highest_score) < 5:
             second_highest_id = category_mapping.get(second_highest_category, second_highest_category)
             second_highest_severity = categories_id.get(second_highest_category, '')
             
-            main_explanation = f"Berdasarkan jawaban Anda, Anda mengalami {prediction_id}. Skor {prediction_id} ({highest_score}) dan {second_highest_id} ({second_highest_score}) Anda sama-sama tinggi dan termasuk dalam kategori {prediction_severity_id}. Artinya, gejala {prediction_id} yang Anda alami sudah sangat menonjol dan memerlukan perhatian yang serius."
+            main_explanation = f"Berdasarkan jawaban Anda, Anda mengalami {highest_category_id}. Skor {highest_category_id} ({highest_score}) dan {second_highest_id} ({second_highest_score}) Anda sama-sama tinggi dan termasuk dalam kategori {highest_severity_id}. Artinya, gejala {highest_category_id} yang Anda alami sudah sangat menonjol dan memerlukan perhatian yang serius."
         else:
-            main_explanation = f"Berdasarkan jawaban Anda, Anda mengalasi {prediction_id} dengan skor {highest_score}. Gejala {prediction_id} yang Anda tunjukkan sudah termasuk dalam kategori {prediction_severity_id} dan memerlukan perhatian yang serius."
+            main_explanation = f"Berdasarkan jawaban Anda, Anda mengalami {highest_category_id} dengan skor {highest_score}. Gejala {highest_category_id} yang Anda tunjukkan sudah termasuk dalam kategori {highest_severity_id} dan memerlukan perhatian yang serius."
     
     # Generate penjelasan dukungan sosial
     mspps_avg = (so_score + family_score + friends_score) / 3
@@ -141,66 +213,23 @@ def generate_explanation(prediction_label, depression_score, anxiety_score, stre
     
     return full_explanation
 
+
 def categorize_DAS(row):
     """
     Kategorisasi skor DASS menjadi label
+    
+    Menggunakan severity level (0-4) untuk categorisasi
     """
     depression = row["Depression_Score"]
     anxiety = row["Anxiety_Score"]
     stress = row["Stress_Score"]
 
-    def get_severity_level(score, type):
-        if type == "Depression":
-            if score >= 28:
-                return 4
-            elif score >= 21:
-                return 3
-            elif score >= 14:
-                return 2
-            elif score >= 10:
-                return 1
-            else:
-                return 0
-        elif type == "Anxiety":
-            if score >= 20:
-                return 4
-            elif score >= 15:
-                return 3
-            elif score >= 10:
-                return 2
-            elif score >= 8:
-                return 1
-            else:
-                return 0
-        else:  # stress
-            if score >= 34:
-                return 4
-            elif score >= 26:
-                return 3
-            elif score >= 19:
-                return 2
-            elif score >= 15:
-                return 1
-            else:
-                return 0
-
     if depression <= 9 and anxiety <= 7 and stress <= 14:
         return "Normal"
     else:
-        if depression > 9:
-            depression_abnormal = True
-        else:
-            depression_abnormal = False
-
-        if anxiety > 7:
-            anxiety_abnormal = True
-        else:
-            anxiety_abnormal = False
-
-        if stress > 14:
-            stress_abnormal = True
-        else:
-            stress_abnormal = False
+        depression_abnormal = depression > 9
+        anxiety_abnormal = anxiety > 7
+        stress_abnormal = stress > 14
 
         depression_level = get_severity_level(depression, "Depression") if depression_abnormal else 0
         anxiety_level = get_severity_level(anxiety, "Anxiety") if anxiety_abnormal else 0
@@ -213,35 +242,28 @@ def categorize_DAS(row):
         elif stress_level > depression_level and stress_level > anxiety_level:
             return "Stress"
         else:
-            if depression_level == anxiety_level and depression_level == stress_level:
-                if depression >= anxiety and depression >= stress:
-                    return "Depression"
-                elif anxiety >= depression and anxiety >= stress:
-                    return "Anxiety"
-                else:
-                    return "Stress"
-            elif depression_level == anxiety_level and depression_level > stress_level:
-                if depression >= anxiety:
-                    return "Depression"
-                else:
-                    return "Anxiety"
-            elif depression_level == stress_level and depression_level > anxiety_level:
-                if depression >= stress:
-                    return "Depression"
-                else:
-                    return "Stress"
-            elif anxiety_level == stress_level and anxiety_level > depression_level:
-                if anxiety >= stress:
-                    return "Anxiety"
-                else:
-                    return "Stress"
+            # Handle tie: jika ada yang sama, gunakan skor mentah sebagai tie-breaker
+            levels = {
+                'Depression': depression_level,
+                'Anxiety': anxiety_level,
+                'Stress': stress_level
+            }
+            scores = {
+                'Depression': depression,
+                'Anxiety': anxiety,
+                'Stress': stress
+            }
+            
+            # Cari yang punya level tertinggi
+            max_level = max(levels.values())
+            candidates = [k for k, v in levels.items() if v == max_level]
+            
+            # Jika ada tie, gunakan skor mentah
+            if len(candidates) > 1:
+                return max(candidates, key=lambda x: scores[x])
             else:
-                if depression >= anxiety and depression >= stress:
-                    return "Depression"
-                elif anxiety >= depression and anxiety >= stress:
-                    return "Anxiety"
-                else:
-                    return "Stress"
+                return candidates[0]
+
 
 @app.route('/')
 def home():
@@ -254,12 +276,14 @@ def home():
         }
     })
 
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({
         'status': 'healthy',
         'dass_model_loaded': dass_model is not None
     })
+
 
 # =========================
 # DASS-21 PREDICTION ENDPOINT
@@ -276,15 +300,9 @@ def predict_dass():
         print("\n" + "="*60)
         print("REQUEST DATA:")
         print("="*60)
-        import json
-        print(json.dumps(data, indent=2))
+        import json as json_module
+        print(json_module.dumps(data, indent=2))
         print("="*60 + "\n")
-        
-        # Ekstrak data dari request
-        # Expected format: {
-        #   "fs1": 4, "fs2": 5, ..., "fs12": 4,
-        #   "das1": 0, "das2": 1, ..., "das21": 0
-        # }
         
         # Mapping Likert untuk MSPSS
         likert_mapping = {
@@ -338,8 +356,7 @@ def predict_dass():
         anxiety_score = np.sum(anxiety_items) * 2
         stress_score = np.sum(stress_items) * 2
         
-        # Total DASS (semua items: 21 items × 0-3 = 0-63, dikali 2 = 0-126)
-        # ATAU total dari 3 kategori: 0-42 + 0-42 + 0-42 = 0-126
+        # Total DASS
         total_dass_score = depression_score + anxiety_score + stress_score
         
         # Buat dataframe untuk prediksi
@@ -377,10 +394,12 @@ def predict_dass():
 
         # Generate penjelasan untuk user
         explanation = generate_explanation(
-            manual_label, depression_score, anxiety_score, stress_score,
+            prediction_label,
+            depression_score, anxiety_score, stress_score,
             depression_category_id, anxiety_category_id, stress_category_id,
             so_score, family_score, friends_score
         )
+        
 
         # Convert numpy types to native Python types for JSON serialization
         def convert_to_native(obj):
@@ -432,7 +451,7 @@ def predict_dass():
                     'Anxiety': int(anxiety_score),
                     'Stress': int(stress_score),
                     'Total': int(total_dass_score),
-                    'Total_Max': 126  # 21 items × max 3 points × 2 = 126
+                    'Total_Max': 126
                 }
             }
         }
@@ -441,7 +460,7 @@ def predict_dass():
         print("\n" + "="*60)
         print("RESPONSE DATA:")
         print("="*60)
-        print(json.dumps(response, indent=2))
+        print(json_module.dumps(response, indent=2))
         print("="*60 + "\n")
         
         return jsonify(response)
