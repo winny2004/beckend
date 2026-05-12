@@ -210,25 +210,32 @@ def generate_explanation(
         'Stress': stress_score
     }
 
-    highest_category = resolve_main_category(
-        depression_score,
-        anxiety_score,
-        stress_score
-    )
-
-    highest_score = scores_dict[highest_category]
-
-    remaining = {
-        k: v for k, v in scores_dict.items()
-        if k != highest_category
-    }
-
-    if remaining:
-        second_highest_category = max(remaining, key=remaining.get)
-        second_highest_score = remaining[second_highest_category]
-    else:
+    # ===== FIX: Handle kasus Normal terlebih dahulu =====
+    if prediction_label == 'Normal':
+        highest_category = 'Normal'
+        highest_score = 0
         second_highest_category = None
         second_highest_score = 0
+    else:
+        highest_category = resolve_main_category(
+            depression_score,
+            anxiety_score,
+            stress_score
+        )
+
+        highest_score = scores_dict.get(highest_category, 0)
+
+        remaining = {
+            k: v for k, v in scores_dict.items()
+            if k != highest_category
+        }
+
+        if remaining:
+            second_highest_category = max(remaining, key=remaining.get)
+            second_highest_score = remaining[second_highest_category]
+        else:
+            second_highest_category = None
+            second_highest_score = 0
 
     highest_category_id = category_mapping.get(
         highest_category,
